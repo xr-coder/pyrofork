@@ -32,7 +32,6 @@ from .on_inline_query import OnInlineQuery
 from .on_message import OnMessage
 from .on_poll import OnPoll
 from .on_pre_checkout_query import OnPreCheckoutQuery
-from .on_purchased_paid_media import OnPurchasedPaidMedia
 from .on_raw_update import OnRawUpdate
 from .on_user_status import OnUserStatus
 from .on_story import OnStory
@@ -62,7 +61,6 @@ class Decorators(
     OnChatJoinRequest,
     OnStory,
     OnMessageReactionUpdated,
-    OnMessageReactionCountUpdated,
-    OnPurchasedPaidMedia
+    OnMessageReactionCountUpdated
 ):
     pass

@@ -42,8 +42,7 @@ class SendPaidMedia:
         disable_notification: bool = None,
         schedule_date: datetime = None,
         protect_content: bool = None,
-        invert_media: bool = None,
-        payload: str = None
+        invert_media: bool = None
     ) -> "types.Message":
         """Send paid media.
         Only for channels.
@@ -84,9 +83,6 @@ class SendPaidMedia:
 
             invert_media (``bool``, *optional*):
                 Invert the media.
-            
-            payload (``str``, *optional*):
-                Bot-defined paid media payload, 0-128 bytes. This will not be displayed to the user, use it for your internal processes.
 
         Example:
             .. code-block:: python
@@ -272,8 +268,7 @@ class SendPaidMedia:
             peer=await self.resolve_peer(chat_id),
             media=raw.types.InputMediaPaidMedia(
                 stars_amount=stars_amount,
-                extended_media=multi_media,
-                payload=payload
+                extended_media=multi_media
             ),
             silent=disable_notification or None,
             random_id=self.rnd_id(),

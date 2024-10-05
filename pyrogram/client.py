@@ -33,7 +33,7 @@ from importlib import import_module
 from io import StringIO, BytesIO
 from mimetypes import MimeTypes
 from pathlib import Path
-from typing import Union, List, Optional, Callable, AsyncGenerator, Type, Tuple
+from typing import Union, List, Optional, Callable, AsyncGenerator, Type
 
 import pyrogram
 from pyrogram import __version__, __license__
@@ -45,7 +45,7 @@ from pyrogram.errors import CDNFileHashMismatch
 from pyrogram.errors import (
     SessionPasswordNeeded,
     VolumeLocNotFound, ChannelPrivate,
-    BadRequest, ChannelInvalid, PersistentTimestampInvalid, PersistentTimestampOutdated
+    BadRequest
 )
 from pyrogram.handlers.handler import Handler
 from pyrogram.methods import Methods
@@ -662,11 +662,10 @@ class Client(Methods):
                                         )]
                                     ),
                                     pts=pts - pts_count,
-                                    limit=pts,
-                                    force=False
+                                    limit=pts
                                 )
                             )
-                        except (ChannelPrivate, PersistentTimestampOutdated, PersistentTimestampInvalid):
+                        except ChannelPrivate:
                             pass
                         else:
                             if not isinstance(diff, raw.types.updates.ChannelDifferenceEmpty):
@@ -710,92 +709,6 @@ class Client(Methods):
             self.dispatcher.updates_queue.put_nowait((updates.update, {}, {}))
         elif isinstance(updates, raw.types.UpdatesTooLong):
             log.info(updates)
-
-    async def recover_gaps(self) -> Tuple[int, int]:
-        states = await self.storage.update_state()
-
-        message_updates_counter = 0
-        other_updates_counter = 0
-
-        if not states:
-            log.info("No states found, skipping recovery.")
-            return (message_updates_counter, other_updates_counter)
-
-        for state in states:
-            id, local_pts, _, local_date, _ = state
-
-            prev_pts = 0
-
-            while True:
-                try:
-                    diff = await self.invoke(
-                        raw.functions.updates.GetChannelDifference(
-                            channel=await self.resolve_peer(id),
-                            filter=raw.types.ChannelMessagesFilterEmpty(),
-                            pts=local_pts,
-                            limit=10000,
-                            force=False
-                        ) if id < 0 else
-                        raw.functions.updates.GetDifference(
-                            pts=local_pts,
-                            date=local_date,
-                            qts=0
-                        )
-                    )
-                except (ChannelPrivate, ChannelInvalid, PersistentTimestampOutdated, PersistentTimestampInvalid):
-                    break
-
-                if isinstance(diff, raw.types.updates.DifferenceEmpty):
-                    break
-                elif isinstance(diff, raw.types.updates.DifferenceTooLong):
-                    break
-                elif isinstance(diff, raw.types.updates.Difference):
-                    local_pts = diff.state.pts
-                elif isinstance(diff, raw.types.updates.DifferenceSlice):
-                    local_pts = diff.intermediate_state.pts
-                    local_date = diff.intermediate_state.date
-
-                    if prev_pts == local_pts:
-                        break
-
-                    prev_pts = local_pts
-                elif isinstance(diff, raw.types.updates.ChannelDifferenceEmpty):
-                    break
-                elif isinstance(diff, raw.types.updates.ChannelDifferenceTooLong):
-                    break
-                elif isinstance(diff, raw.types.updates.ChannelDifference):
-                    local_pts = diff.pts
-
-                users = {i.id: i for i in diff.users}
-                chats = {i.id: i for i in diff.chats}
-
-                for message in diff.new_messages:
-                    message_updates_counter += 1
-                    self.dispatcher.updates_queue.put_nowait(
-                        (
-                            raw.types.UpdateNewMessage(
-                                message=message,
-                                pts=local_pts,
-                                pts_count=-1
-                            ),
-                            users,
-                            chats
-                        )
-                    )
-
-                for update in diff.other_updates:
-                    other_updates_counter += 1
-                    self.dispatcher.updates_queue.put_nowait(
-                        (update, users, chats)
-                    )
-
-                if isinstance(diff, (raw.types.updates.Difference, raw.types.updates.ChannelDifference)):
-                    break
-
-            await self.storage.update_state(id)
-
-        log.info("Recovered %s messages and %s updates.", message_updates_counter, other_updates_counter)
-        return (message_updates_counter, other_updates_counter)
 
     async def load_session(self):
         await self.storage.open()
@@ -848,12 +761,6 @@ class Client(Methods):
                         except Exception as e:
                             print(e)
 
-    def is_excluded(self, exclude, module):
-        for e in exclude:
-            if module == e or module.startswith(e + '.'):
-                return True
-        return False
-
     def load_plugins(self):
         if self.plugins:
             plugins = self.plugins.copy()
@@ -872,178 +779,40 @@ class Client(Methods):
             include = plugins.get("include", [])
             exclude = plugins.get("exclude", [])
 
-            exclude_plugins = []
-            exclude_handlers = {}
-
-            if exclude:
-                for path, handler in exclude:
-                    module_path = os.path.join(
-                        root.replace(".", "/"), path.replace(".", "/")
-                    )
-                    if handler is None:
-                        exclude_plugins.append(module_path.replace("/", "."))
-                    else:
-                        exclude_handlers[module_path.replace("/", ".")] = handler
-
             count = 0
 
             if not include:
-                for current_root, dirnames, filenames in os.walk(root.replace(".", "/")):
-                    namespace = current_root.replace("/", ".")
-                    if "__pycache__" in namespace:
-                        continue
-                    if namespace in exclude_plugins:
-                        log.warning(
-                            '[%s] [LOAD] Ignoring namespace "%s"', self.name, namespace
-                        )
-                        continue
-                    else:
-                        for filename in filenames:
-                            if filename.endswith(".py"):
-                                module_path = namespace + "." + filename[:-3]
-                                if module_path in exclude_plugins:
-                                    log.warning(
-                                        '[%s] [LOAD] Ignoring namespace "%s"',
-                                        self.name,
-                                        module_path,
-                                    )
-                                    continue
-                                else:
-                                    module = import_module(module_path)
+                for path in sorted(Path(root.replace(".", "/")).rglob("*.py")):
+                    module_path = '.'.join(path.parent.parts + (path.stem,))
+                    module = import_module(module_path)
 
-                                    for name in vars(module).keys():
+                    for name in vars(module).keys():
+                        # noinspection PyBroadException
+                        try:
+                            for handler, group in getattr(module, name).handlers:
+                                if isinstance(handler, Handler) and isinstance(group, int):
+                                    self.add_handler(handler, group)
 
-                                        # noinspection PyBroadException
-                                        try:
-                                            for handler, group in getattr(
-                                                module, name
-                                            ).handlers:
-                                                if isinstance(
-                                                    handler, Handler
-                                                ) and isinstance(group, int):
+                                    log.info('[{}] [LOAD] {}("{}") in group {} from "{}"'.format(
+                                        self.name, type(handler).__name__, name, group, module_path))
 
-                                                    if (
-                                                        module_path in exclude_handlers
-                                                        and name
-                                                        in exclude_handlers[module_path]
-                                                    ):
-                                                        exclude_handlers[
-                                                            module_path
-                                                        ].remove(name)
-                                                        log.warning(
-                                                            '[{}] [LOAD] Ignoring function "{}" from group {} in "{}"'.format(
-                                                                self.name,
-                                                                name,
-                                                                group,
-                                                                module_path,
-                                                            )
-                                                        )
-                                                        continue
-
-                                                    self.add_handler(handler, group)
-
-                                                    log.info(
-                                                        '[{}] [LOAD] {}("{}") in group {} from "{}"'.format(
-                                                            self.name,
-                                                            type(handler).__name__,
-                                                            name,
-                                                            group,
-                                                            module_path,
-                                                        )
-                                                    )
-
-                                                    count += 1
-                                        except Exception as e:
-                                            pass
+                                    count += 1
+                        except Exception:
+                            pass
             else:
                 for path, handlers in include:
-                    module_path = root.replace("/", ".") + "." + path
-                    if self.is_excluded(exclude_plugins, module_path):
-                        log.warning(
-                            '[%s] [LOAD] Ignoring namespace "%s"', self.name, module_path
-                        )
-                        continue
-
+                    module_path = root + "." + path
                     warn_non_existent_functions = True
 
                     try:
                         module = import_module(module_path)
                     except ImportError:
-                        log.warning(
-                            '[%s] [LOAD] Ignoring non-existent module "%s"',
-                            self.name,
-                            module_path,
-                        )
+                        log.warning('[%s] [LOAD] Ignoring non-existent module "%s"', self.name, module_path)
                         continue
 
                     if "__path__" in dir(module):
-                        for current_root, _, filenames in os.walk(module_path.replace(".", "/")):
-                            namespace = current_root.replace("/", ".")
-                            if "__pycache__" in namespace:
-                                continue
-                            if namespace in exclude_plugins:
-                                log.warning(
-                                    '[%s] [LOAD] Ignoring namespace "%s"', self.name, namespace
-                                )
-                                continue
-                            else:
-                                for filename in filenames:
-                                    if filename.endswith(".py"):
-                                        module_path = namespace + "." + filename[:-3]
-                                        if module_path in exclude_plugins:
-                                            log.warning(
-                                                '[%s] [LOAD] Ignoring namespace "%s"',
-                                                self.name,
-                                                module_path,
-                                            )
-                                            continue
-                                        else:
-                                            module = import_module(module_path)
-
-                                            for name in vars(module).keys():
-
-                                                # noinspection PyBroadException
-                                                try:
-                                                    for handler, group in getattr(
-                                                        module, name
-                                                    ).handlers:
-                                                        if isinstance(
-                                                            handler, Handler
-                                                        ) and isinstance(group, int):
-
-                                                            if (
-                                                                module_path in exclude_handlers
-                                                                and name
-                                                                in exclude_handlers[module_path]
-                                                            ):
-                                                                exclude_handlers[
-                                                                    module_path
-                                                                ].remove(name)
-                                                                log.warning(
-                                                                    '[{}] [LOAD] Ignoring function "{}" from group {} in "{}"'.format(
-                                                                        self.name,
-                                                                        name,
-                                                                        group,
-                                                                        module_path,
-                                                                    )
-                                                                )
-                                                                continue
-
-                                                            self.add_handler(handler, group)
-
-                                                            log.info(
-                                                                '[{}] [LOAD] {}("{}") in group {} from "{}"'.format(
-                                                                    self.name,
-                                                                    type(handler).__name__,
-                                                                    name,
-                                                                    group,
-                                                                    module_path,
-                                                                )
-                                                            )
-
-                                                            count += 1
-                                                except Exception as e:
-                                                    pass
+                        log.warning('[%s] [LOAD] Ignoring namespace "%s"', self.name, module_path)
+                        continue
 
                     if handlers is None:
                         handlers = vars(module).keys()
@@ -1054,52 +823,55 @@ class Client(Methods):
                         try:
                             for handler, group in getattr(module, name).handlers:
                                 if isinstance(handler, Handler) and isinstance(group, int):
-                                    if (
-                                        module_path in exclude_handlers
-                                        and name in exclude_handlers[module_path]
-                                    ):
-                                        exclude_handlers[module_path].remove(name)
-                                        log.warning(
-                                            '[{}] [LOAD] Ignoring function "{}" from group {} in "{}"'.format(
-                                                self.name, name, group, module_path
-                                            )
-                                        )
-                                        continue
                                     self.add_handler(handler, group)
 
-                                    log.info(
-                                        '[{}] [LOAD] {}("{}") in group {} from "{}"'.format(
-                                            self.name,
-                                            type(handler).__name__,
-                                            name,
-                                            group,
-                                            module_path,
-                                        )
-                                    )
+                                    log.info('[{}] [LOAD] {}("{}") in group {} from "{}"'.format(
+                                        self.name, type(handler).__name__, name, group, module_path))
 
                                     count += 1
                         except Exception:
                             if warn_non_existent_functions:
-                                log.warning(
-                                    '[{}] [LOAD] Ignoring non-existent function "{}" from "{}"'.format(
-                                        self.name, name, module_path
-                                    )
-                                )
+                                log.warning('[{}] [LOAD] Ignoring non-existent function "{}" from "{}"'.format(
+                                    self.name, name, module_path))
 
-            for module in exclude_handlers:
-                for handler in exclude_handlers[module]:
-                    log.warning(
-                        '[{}] [LOAD] Ignoring non-existent function "{}" from "{}"'.format(
-                            self.name, handler, module
-                        )
-                    )
+            if exclude:
+                for path, handlers in exclude:
+                    module_path = root + "." + path
+                    warn_non_existent_functions = True
+
+                    try:
+                        module = import_module(module_path)
+                    except ImportError:
+                        log.warning('[%s] [UNLOAD] Ignoring non-existent module "%s"', self.name, module_path)
+                        continue
+
+                    if "__path__" in dir(module):
+                        log.warning('[%s] [UNLOAD] Ignoring namespace "%s"', self.name, module_path)
+                        continue
+
+                    if handlers is None:
+                        handlers = vars(module).keys()
+                        warn_non_existent_functions = False
+
+                    for name in handlers:
+                        # noinspection PyBroadException
+                        try:
+                            for handler, group in getattr(module, name).handlers:
+                                if isinstance(handler, Handler) and isinstance(group, int):
+                                    self.remove_handler(handler, group)
+
+                                    log.info('[{}] [UNLOAD] {}("{}") from group {} in "{}"'.format(
+                                        self.name, type(handler).__name__, name, group, module_path))
+
+                                    count -= 1
+                        except Exception:
+                            if warn_non_existent_functions:
+                                log.warning('[{}] [UNLOAD] Ignoring non-existent function "{}" from "{}"'.format(
+                                    self.name, name, module_path))
 
             if count > 0:
-                log.info(
-                    '[{}] Successfully loaded {} plugin{} from "{}"'.format(
-                        self.name, count, "s" if count > 1 else "", root
-                    )
-                )
+                log.info('[{}] Successfully loaded {} plugin{} from "{}"'.format(
+                    self.name, count, "s" if count > 1 else "", root))
             else:
                 log.warning('[%s] No plugin loaded from "%s"', self.name, root)
 

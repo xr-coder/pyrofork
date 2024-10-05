@@ -36,7 +36,7 @@ class ShippingQuery(Object, Update):
             User who sent the query.
 
         invoice_payload (``str``):
-            Bot-defined invoice payload, 1-128 bytes. This will not be displayed to the user, use for your internal processes.
+            Bot specified invoice payload. Only available to the bot that received the payment.
 
         shipping_address (:obj:`~pyrogram.types.ShippingAddress`):
             User specified shipping address. Only available to the bot that received the payment.
@@ -64,7 +64,7 @@ class ShippingQuery(Object, Update):
         client: "pyrogram.Client",
         shipping_query: "raw.types.updateBotShippingQuery",
         users: dict
-    ) -> "types.PreCheckoutQuery":
+    ) -> "PreCheckoutQuery":
         # Try to decode pre-checkout query payload into string. If that fails, fallback to bytes instead of decoding by
         # ignoring/replacing errors, this way, button clicks will still work.
         try:
@@ -72,7 +72,7 @@ class ShippingQuery(Object, Update):
         except (UnicodeDecodeError, AttributeError):
             payload = shipping_query.payload
 
-        return types.PreCheckoutQuery(
+        return PreCheckoutQuery(
             id=str(shipping_query.query_id),
             from_user=types.User._parse(client, users[shipping_query.user_id]),
             invoice_payload=payload,

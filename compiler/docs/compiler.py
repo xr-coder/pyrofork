@@ -251,6 +251,7 @@ def pyrogram_api():
             get_forum_topics
             get_forum_topics_by_id
             set_chat_username
+            get_nearby_chats
             archive_chats
             unarchive_chats
             add_chat_members
@@ -592,7 +593,6 @@ def pyrogram_api():
             MenuButtonDefault
             SentWebAppMessage
             PreCheckoutQuery
-            PurchasedPaidMedia
         """,
         bot_commands="""
         Bot commands
@@ -748,7 +748,6 @@ def pyrogram_api():
             Message.reply_web_page
             Message.get_media_group
             Message.react
-            Message.translate
             Message.wait_for_click
         """,
         chat="""

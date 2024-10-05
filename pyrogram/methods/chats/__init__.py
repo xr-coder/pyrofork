@@ -50,6 +50,7 @@ from .get_dialogs_count import GetDialogsCount
 from .get_folders import GetFolders
 from .get_forum_topics import GetForumTopics
 from .get_forum_topics_by_id import GetForumTopicsByID
+from .get_nearby_chats import GetNearbyChats
 from .get_send_as_chats import GetSendAsChats
 from .join_chat import JoinChat
 from .leave_chat import LeaveChat
@@ -118,6 +119,7 @@ class Chats(
     ReopenGeneralTopic,
     HideGeneralTopic,
     UnhideGeneralTopic,
+    GetNearbyChats,
     SetAdministratorTitle,
     SetSlowMode,
     DeleteUserHistory,

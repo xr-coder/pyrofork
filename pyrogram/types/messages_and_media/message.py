@@ -111,9 +111,6 @@ class Message(Object, Update):
         is_topic_message (``bool``, *optional*):
             True, if the message is sent to a forum topic
 
-        reply_to_chat_id (``int``, *optional*):
-            Unique identifier of the chat where the replied message belongs to.
-
         reply_to_message_id (``int``, *optional*):
             The id of the message which this message directly replied to.
 
@@ -453,7 +450,6 @@ class Message(Object, Update):
         forward_signature: str = None,
         forward_date: datetime = None,
         is_topic_message: bool = None,
-        reply_to_chat_id: int = None,
         reply_to_message_id: int = None,
         reply_to_story_id: int = None,
         reply_to_story_user_id: int = None,
@@ -571,7 +567,6 @@ class Message(Object, Update):
         self.forward_signature = forward_signature
         self.forward_date = forward_date
         self.is_topic_message = is_topic_message
-        self.reply_to_chat_id = reply_to_chat_id
         self.reply_to_message_id = reply_to_message_id
         self.reply_to_story_id = reply_to_story_id
         self.reply_to_story_user_id = reply_to_story_user_id
@@ -865,7 +860,7 @@ class Message(Object, Update):
                 gifted_premium = await types.GiftedPremium._parse(client, action, from_user.id)
                 service_type = enums.MessageServiceType.GIFTED_PREMIUM
             elif isinstance(action, raw.types.MessageActionGiveawayLaunch):
-                giveaway_launched = types.GiveawayLaunched._parse(client, action)
+                giveaway_launched = types.GiveawayLaunched()
                 service_type = enums.MessageServiceType.GIVEAWAY_LAUNCHED
             elif isinstance(action, raw.types.MessageActionGiveawayResults):
                 giveaway_result = await types.GiveawayResult._parse(client, action, True)
@@ -1270,15 +1265,13 @@ class Message(Object, Update):
                         parsed_message.reply_to_story_chat_id = utils.get_channel_id(message.reply_to.peer.chat_id)
                     else:
                         parsed_message.reply_to_story_chat_id = utils.get_channel_id(message.reply_to.peer.channel_id)
-                rtci = getattr(message.reply_to, "reply_to_peer_id", None)
-                reply_to_chat_id = utils.get_channel_id(utils.get_raw_peer_id(rtci)) if rtci else None
-                if rtci is not None and parsed_message.chat.id != reply_to_chat_id:
-                    parsed_message.reply_to_chat_id = reply_to_chat_id
 
                 if replies:
                     if parsed_message.reply_to_message_id:
-                        if rtci is not None and parsed_message.chat.id != reply_to_chat_id:
-                            key = (reply_to_chat_id, message.reply_to.reply_to_msg_id)
+                        is_cross_chat = getattr(message.reply_to, "reply_to_peer_id", None) and getattr(message.reply_to.reply_to_peer_id, "channel_id", None)
+
+                        if is_cross_chat:
+                            key = (utils.get_channel_id(message.reply_to.reply_to_peer_id.channel_id), message.reply_to.reply_to_msg_id)
                             reply_to_params = {"chat_id": key[0], 'message_ids': key[1]}
                         else:
                             key = (parsed_message.chat.id, parsed_message.reply_to_message_id)
@@ -1424,7 +1417,7 @@ class Message(Object, Update):
                 Business connection identifier.
                 for business bots only.
 
-            reply_in_chat_id (``int`` | ``str``, *optional*):
+            reply_to_chat_id (``int`` | ``str``, *optional*):
                 Unique identifier for the origin chat.
                 for reply to message from another chat.
                 You can also use chat public link in form of *t.me/<username>* (str).
@@ -1602,7 +1595,7 @@ class Message(Object, Update):
                 Business connection identifier.
                 for business bots only.
 
-            reply_in_chat_id (``int`` | ``str``, *optional*):
+            reply_to_chat_id (``int`` | ``str``, *optional*):
                 Unique identifier for the origin chat.
                 for reply to message from another chat.
                 You can also use chat public link in form of *t.me/<username>* (str).
@@ -3173,7 +3166,6 @@ class Message(Object, Update):
         self,
         sticker: Union[str, BinaryIO],
         quote: bool = None,
-        emoji: str = None,
         disable_notification: bool = None,
         reply_to_message_id: int = None,
         business_connection_id: str = None,
@@ -3218,9 +3210,6 @@ class Message(Object, Update):
                 If ``True``, the message will be sent as a reply to this message.
                 If *reply_to_message_id* is passed, this parameter will be ignored.
                 Defaults to ``True`` in group chats and ``False`` in private chats.
-
-            emoji (``str``, *optional*):
-                Emoji associated with the sticker; only for just uploaded stickers
 
             disable_notification (``bool``, *optional*):
                 Sends the message silently.
@@ -3309,7 +3298,6 @@ class Message(Object, Update):
         return await self._client.send_sticker(
             chat_id=chat_id,
             sticker=sticker,
-            emoji=emoji,
             disable_notification=disable_notification,
             message_thread_id=message_thread_id,
             reply_to_message_id=reply_to_message_id,
@@ -5295,29 +5283,22 @@ class Message(Object, Update):
         to_language_code: str
     ) -> "types.TranslatedText":
         """Bound method *translate* of :obj:`~pyrogram.types.Message`.
-
         Use as a shortcut for:
-            .. code-block:: python
-
-                await client.translate_message_text(
-                    chat_id=message.chat.id,
-                    message_ids=message_id,
-                    to_language_code="en"
-                )
-
+        .. code-block:: python
+            await client.translate_message_text(
+                chat_id=message.chat.id,
+                message_ids=message_id,
+                to_language_code="en"
+            )
         Example:
             .. code-block:: python
-
-                await Message.translate("en")
-
+                await message.translate("en")
         Parameters:
             to_language_code (``str``):
                 Language code of the language to which the message is translated.
                 Must be one of "af", "sq", "am", "ar", "hy", "az", "eu", "be", "bn", "bs", "bg", "ca", "ceb", "zh-CN", "zh", "zh-Hans", "zh-TW", "zh-Hant", "co", "hr", "cs", "da", "nl", "en", "eo", "et", "fi", "fr", "fy", "gl", "ka", "de", "el", "gu", "ht", "ha", "haw", "he", "iw", "hi", "hmn", "hu", "is", "ig", "id", "in", "ga", "it", "ja", "jv", "kn", "kk", "km", "rw", "ko", "ku", "ky", "lo", "la", "lv", "lt", "lb", "mk", "mg", "ms", "ml", "mt", "mi", "mr", "mn", "my", "ne", "no", "ny", "or", "ps", "fa", "pl", "pt", "pa", "ro", "ru", "sm", "gd", "sr", "st", "sn", "sd", "si", "sk", "sl", "so", "es", "su", "sw", "sv", "tl", "tg", "ta", "tt", "te", "th", "tr", "tk", "uk", "ur", "ug", "uz", "vi", "cy", "xh", "yi", "ji", "yo", "zu".
-
         Returns:
             :obj:`~pyrogram.types.TranslatedText`: The translated result is returned.
-
         Raises:
             RPCError: In case of a Telegram RPC error.
         """
